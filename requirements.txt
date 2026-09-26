@@ -1,0 +1,28 @@
+# MATRSS library list: the Python counterpart of a Maven pom.xml.
+#
+# Install everything into the project venv with one command:
+#     .venv\Scripts\python -m pip install -r requirements.txt
+# or create the venv from scratch and install in one go:
+#     .\setup_env.ps1
+#
+# pyproject.toml declares the *allowed* version ranges (what pip/CI resolve against);
+# this file pins the *tested* versions so every machine gets an identical environment.
+# To add a library: add it here AND to the matching list in pyproject.toml.
+
+# --- the project itself (editable, with plotting + dev extras) ---
+-e .[dev,plot]
+
+# --- core runtime ---
+numpy==2.4.6
+pandas==2.3.3           # keep <3 on Windows: Smart App Control blocks pandas 3.0.x DLLs
+PyYAML==6.0.3
+
+# --- plotting ---
+matplotlib==3.11.2
+
+# --- testing, linting, type checking ---
+pytest==9.1.1
+ruff==0.16.8
+mypy==2.3.1
+pandas-stubs==2.3.3.260113
+types-PyYAML==6.0.12.20260906
