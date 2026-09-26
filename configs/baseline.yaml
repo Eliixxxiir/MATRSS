@@ -1,0 +1,29 @@
+# Baseline: reproduces the v1 comparison (asymmetric trust, greedy vs epsilon-greedy)
+# and adds principled baselines. All conditions share the environment per seed (CRN).
+name: baseline
+n_rounds: 1000
+n_clients: 10
+seeds: {start: 0, stop: 30}
+reference: asym_greedy          # paired differences are reported against this condition
+isolation_threshold: 0.3        # "isolated" = routed to at <= 30% of the uniform-random rate
+isolation_window: 5             # ... averaged over the next 5 rounds
+
+providers:
+  - {type: honest,    count: 4, p: 0.95}
+  - {type: malicious, count: 6, p: 0.05}
+  - {type: noisy,     count: 6, p: 0.50}
+  - {type: degrading, count: 4, p_start: 0.95, p_end: 0.05, onset: 50, rate: 0.1}
+
+conditions:
+  - name: asym_greedy
+    trust: {type: asymmetric, reward: 0.1, penalty: 0.2}
+    selection: {type: greedy}
+  - name: asym_eps0.1
+    trust: {type: asymmetric, reward: 0.1, penalty: 0.2}
+    selection: {type: epsilon_greedy, epsilon: 0.1}
+  - name: beta_eps0.1
+    trust: {type: beta, forgetting: 0.9}
+    selection: {type: epsilon_greedy, epsilon: 0.1}
+  - name: beta_thompson
+    trust: {type: beta, forgetting: 0.9}
+    selection: {type: thompson}

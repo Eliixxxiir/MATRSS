@@ -1,0 +1,7 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "MATRSS: Multi-Agent Trust and Reputation Simulation System"
+authors:
+  - family-names: Warjurkar
+    given-names: Naina
+version: 2.0.0

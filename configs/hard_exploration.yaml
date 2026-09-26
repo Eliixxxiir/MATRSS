@@ -1,0 +1,27 @@
+# Harder case: many "mediocre" providers above the asymmetric break-even (p=0.8 > 2/3)
+# and only one excellent provider. Tests whether policies lock onto a good-enough provider.
+name: hard_exploration
+n_rounds: 1000
+n_clients: 10
+seeds: {start: 0, stop: 30}
+reference: asym_greedy
+
+providers:
+  - {type: honest,    count: 1, p: 0.95}
+  - {type: noisy,     count: 8, p: 0.80}   # "mediocre": reliable-looking but suboptimal
+  - {type: malicious, count: 6, p: 0.05}
+  - {type: degrading, count: 5, p_start: 0.95, p_end: 0.05, onset: 50, rate: 0.1}
+
+conditions:
+  - name: asym_greedy
+    trust: {type: asymmetric, reward: 0.1, penalty: 0.2}
+    selection: {type: greedy}
+  - name: asym_eps0.1
+    trust: {type: asymmetric, reward: 0.1, penalty: 0.2}
+    selection: {type: epsilon_greedy, epsilon: 0.1}
+  - name: beta_greedy
+    trust: {type: beta, forgetting: 0.98}
+    selection: {type: greedy}
+  - name: beta_thompson
+    trust: {type: beta, forgetting: 0.98}
+    selection: {type: thompson}
