@@ -1,4 +1,4 @@
-"""Entry point: `matrss run configs/baseline.yaml --out results/baseline`."""
+"""Entry point: `matrss run configs/baseline.yaml --out results/baseline [--jobs 0]`."""
 
 from __future__ import annotations
 
@@ -7,64 +7,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from .behaviors import Behavior, build_behavior
 from .config import ExperimentConfig
-from .engine import simulate
-from .environment import Environment
-from .metrics import bootstrap_ci, summarize
-from .rng import make_streams
-from .selection import build_selection
-from .trust import build_trust
+from .experiment import aggregate, build_providers, run_experiment
 
-
-def build_providers(specs: list[dict]) -> list[Behavior]:
-    behaviors: list[Behavior] = []
-    for spec in specs:
-        spec = dict(spec)
-        kind, count = spec.pop("type"), spec.pop("count", 1)
-        behaviors += [build_behavior(kind, **spec) for _ in range(count)]
-    return behaviors
-
-
-def run_experiment(cfg: ExperimentConfig, out: Path) -> pd.DataFrame:
-    out.mkdir(parents=True, exist_ok=True)
-    behaviors = build_providers(cfg.providers)
-    rows = []
-    for seed in cfg.seeds:
-        env_rng, _ = make_streams(seed)
-        env = Environment(behaviors, cfg.n_clients, cfg.n_rounds, env_rng)   # shared across conditions (CRN)
-        for cond in cfg.conditions:
-            _, decision_rng = make_streams(seed)          # same fresh decision stream per condition
-            trust = build_trust(cfg.n_clients, env.n_providers, **cond.trust)
-            policy = build_selection(**cond.selection)
-            res = simulate(cond.name, seed, env, trust, policy, decision_rng)
-            rows.append({"condition": cond.name, "seed": seed,
-                         **summarize(res, behaviors, cfg.isolation_threshold,
-                                     cfg.isolation_window)})
-            if seed == cfg.seeds[0]:
-                cols = [f"{label}_{j}" for j, label in enumerate(res.labels)]
-                pd.DataFrame(res.mean_trust, columns=cols).to_csv(
-                    out / f"trust_trajectory_{cond.name}_seed{seed}.csv", index_label="round")
-    df = pd.DataFrame(rows)
-    df.to_csv(out / "per_seed.csv", index=False)
-    return df
-
-
-def aggregate(df: pd.DataFrame, reference: str | None) -> pd.DataFrame:
-    metrics = [c for c in df.columns if c not in ("condition", "seed")]
-    recs = []
-    for cond, g in df.groupby("condition", sort=False):
-        for m in metrics:
-            x = g[m].to_numpy()
-            lo, hi = bootstrap_ci(x)
-            rec = {"condition": cond, "metric": m, "mean": x.mean(), "ci_low": lo, "ci_high": hi}
-            if reference and cond != reference:          # paired difference under CRN
-                ref = df[df.condition == reference].set_index("seed")[m]
-                d = (g.set_index("seed")[m] - ref.loc[g.seed]).to_numpy()
-                dlo, dhi = bootstrap_ci(d)
-                rec |= {"diff_vs_ref": d.mean(), "diff_ci_low": dlo, "diff_ci_high": dhi}
-            recs.append(rec)
-    return pd.DataFrame(recs)
+__all__ = ["aggregate", "build_providers", "main", "run_experiment"]
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -73,17 +19,22 @@ def main(argv: list[str] | None = None) -> None:
     run = sub.add_parser("run", help="run an experiment config")
     run.add_argument("config", type=Path)
     run.add_argument("--out", type=Path, default=None)
+    run.add_argument("--jobs", type=int, default=1,
+                     help="worker processes; 0 = one per CPU (results do not depend on it)")
+    run.add_argument("--quiet", action="store_true", help="do not print the summary table")
     args = ap.parse_args(argv)
 
     cfg = ExperimentConfig.load(args.config)
     out = args.out or Path("results") / cfg.name
-    df = run_experiment(cfg, out)
-    agg = aggregate(df, cfg.reference)
+    df = run_experiment(cfg, out, jobs=args.jobs)
+    agg = aggregate(df, cfg.reference, cfg.n_boot)
     agg.to_csv(out / "summary.csv", index=False)
-    with pd.option_context("display.width", 160, "display.max_columns", 20,
-                           "display.float_format", "{:.4f}".format):
-        print(agg.to_string(index=False))
-    print(f"\nwrote {out}/per_seed.csv, summary.csv, trust trajectories")
+    if not args.quiet:
+        with pd.option_context("display.width", 160, "display.max_columns", 20,
+                               "display.float_format", "{:.4f}".format):
+            print(agg.to_string(index=False))
+    print(f"\nwrote {out}/per_seed.csv, summary.csv"
+          + (", trust trajectories" if cfg.trajectories else ""))
 
 
 if __name__ == "__main__":

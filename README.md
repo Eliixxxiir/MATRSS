@@ -11,11 +11,20 @@ to delegate to while some providers are malicious, noisy, or degrade after build
 ## Model
 
 - **Providers**: Bernoulli processes with success probability `p_j(t)`: honest (0.95), malicious
-  (0.05), noisy (0.5), degrading (0.95 → 0.05 after an onset), recovering.
+  (0.05), noisy (0.5), degrading (0.95 → 0.05 after an onset), recovering, and on-off attackers
+  (`p_on` for `good` rounds, `p_off` for `bad` rounds, repeating). `rate: .inf` makes a
+  degrading/recovering provider switch abruptly; `stagger: true` desynchronizes on-off attackers.
 - **Trust models** (`src/matrss/trust.py`)
   - *Asymmetric additive* (v1): `T ← min(1, T+R)` / `max(0, T−P)`. Scores rise iff `p > P/(R+P)`.
-  - *Beta reputation* with forgetting λ: posterior mean `(r+a₀)/(r+s+a₀+b₀)`, evidence discounted by λ.
-- **Selection** (`src/matrss/selection.py`): greedy (random tie-break), ε-greedy, Thompson sampling.
+  - *Beta reputation* with forgetting λ: posterior mean `(r+a₀)/(r+s+a₀+b₀)`, evidence discounted by λ
+    per interaction (reputation style) or per round (`discount: time`, bandit style);
+    `forgetting_fail` forgets failures at a different rate.
+  - *Sliding-window Beta*: the last `window` outcomes per provider, or the last `window` rounds.
+  - *CUSUM Beta*: change detection with local restarts, two-sided or drop-only (`sides: down`).
+- **Selection** (`src/matrss/selection.py`): greedy (random tie-break), ε-greedy, Thompson sampling,
+  UCB (with discounted/windowed evidence: D-UCB, SW-UCB).
+- **Exact analysis** (`src/matrss/markov.py`): the v1 rule with greedy selection as a Markov chain
+  over trust levels, for exact finite-horizon and long-run behaviour with a few providers.
 
 ## Methodology changes from v1
 
@@ -40,9 +49,28 @@ to delegate to while some providers are malicious, noisy, or degrade after build
 | `malicious_isolation_rounds` | rounds until clients route to malicious providers at ≤ `isolation_threshold` × the uniform-random rate, averaged over the next `isolation_window` rounds |
 | `degraded_exposure_rate` | share of tasks sent to a degrading provider while its current `p(t) < 0.5` |
 | `degraded_adaptation_rounds` | rounds from a degrading provider's drop below `p = 0.5` until it is isolated (same criterion) |
+| `onoff_selection_rate` | share of tasks sent to on-off attackers |
+| `onoff_exposure_rate` | share of tasks sent to an on-off attacker during its bad phase |
+| `recovered_share` | share of tasks sent to recovering providers once they are good again |
+| `readmission_rounds` | rounds from recovery until recovering providers get `readmission_level` of all tasks |
 
 Isolation is measured from routing behaviour, not trust scores: a provider nobody selects keeps a
 stale score, so "trust fell below X" says little about whether clients stopped using it.
+
+## Experiments
+
+A config crosses **scenarios** (provider populations) with **conditions** (trust model + selection)
+over seeds; environments are shared within a (scenario, seed) cell, so conditions are paired. Any
+scenario or condition can carry a `grid` of dotted parameter paths that expands it, e.g.
+`grid: {trust.forgetting: [0.9, 0.99]}` → `beta[forgetting=0.9]`, `beta[forgetting=0.99]`.
+`--jobs 0` runs cells on every CPU; results do not depend on the worker count.
+
+| Study | Run | Analyse |
+|---|---|---|
+| T1: recovery–manipulation frontier | `matrss run configs/t1_frontier.yaml --jobs 0 --quiet` | `python scripts/t1_frontier.py` |
+| T2: why the v1 rule beats Thompson sampling | – | `python scripts/t2_mechanism.py`, `python scripts/t2_regime.py`, `python scripts/t2_tradeoff.py` |
+
+How everything works and why the results come out as they do: [docs/paper/technical-notes.md](docs/paper/technical-notes.md).
 
 ## Quickstart
 
@@ -61,15 +89,18 @@ every dependency. `pyproject.toml` holds the allowed version ranges. Add new lib
 
 ```
 configs/            experiment definitions (YAML)
-src/matrss/         behaviors, environment (CRN), trust, selection, engine, metrics, cli
-tests/              trust invariants, ledger privacy, selection, metrics, reproducibility
-scripts/            plotting
+src/matrss/         behaviors, environment (CRN), trust, selection, engine, metrics,
+                    config, experiment (runner), markov (exact analysis), cli
+tests/              trust invariants, ledger privacy, selection, metrics, exact chain,
+                    reproducibility (incl. parallel = serial)
+scripts/            analysis and plotting
+docs/paper/         paper plans
 ```
 
 ## Roadmap
 
+- Reputation herding when providers have limited capacity (T4)
 - Gossip / shared reputation (EigenTrust-style) and Sybil-collusion attacks on it
-- Sliding-window and discounted UCB for non-stationary providers
 - Context-dependent (task-typed) trust
 
 ## Citation
